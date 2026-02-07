@@ -1,6 +1,7 @@
 <!doctype html>
 <html>
 	<head>
+		<meta charset="utf8" />
 		<style>
 			body {
 				background-color: #111;
@@ -15,72 +16,158 @@
 				left: 50%;
 				transform: translate(-50%, 0px);
 			}
-			
+
 			code {
 				width: 100%;
 				background-color: #000;
-				padding : 1em;
-				border-radius : 1em;
+				padding: 1em;
+				border-radius: 1em;
 				min-height: max-content;
 				height: 3em;
 				white-space: break-spaces;
 				tab-size: 4;
 			}
-			code>span[c] {
-				color : #888;
+
+			code span[tab]::before {
+				content: "⭢";
+				color: #333;
+				position: absolute;
+			}
+			code span[sp]::before {
+				content: "•";
+				color: #333;
+				position: absolute;
+			}
+
+			code span[str] {
+				color: #b87;
+			}
+			code span[str][key] {
+				color: #8ce;
+			}
+
+			code span[nbr] {
+				color: #ac9;
+			}
+
+			code span[bool] {
+				color: #58c;
 			}
 		</style>
 		<script type="module">
-			import { Parser, Language } from './treesitter/web-tree-sitter.js';
-			
+			import { Parser, Language } from "./treesitter/web-tree-sitter.js";
+
 			const langs = {};
-			
+
 			Parser.init().then(async () => {
 				const jsonParser = new Parser();
-				jsonParser.setLanguage(await Language.load('./langs/tree-sitter-json.wasm'));
-				langs["json"] = jsonParser;
-				
+				jsonParser.setLanguage(await Language.load("./langs/tree-sitter-json.wasm"));
+				langs["json"] = {
+					parser: jsonParser,
+					query: {
+						string: "str",
+						number: "nbr",
+						false: "bool",
+						true: "bool",
+					}
+				};
+
 				const clangParser = new Parser();
-				clangParser.setLanguage(await Language.load('./langs/tree-sitter-c.wasm'));
-				langs["clang"] = clangParser;
-				
+				clangParser.setLanguage(await Language.load("./langs/tree-sitter-c.wasm"));
+				langs["clang"] = {
+					parser: clangParser,
+					query: {
+						string: "str",
+						number: "nbr",
+						false: "bool",
+						true: "bool",
+					}
+				};
+
 				const pythonParser = new Parser();
-				pythonParser.setLanguage(await Language.load('./langs/tree-sitter-python.wasm'));
+				pythonParser.setLanguage(await Language.load("./langs/tree-sitter-python.wasm"));
 				langs["python"] = pythonParser;
-				
-				colorOutput(JSON.stringify({test:"value"}, null, "	"));
+
+				updateOutput();
 			});
-			
+
 			const languageMap = {
-				"json": "json",
-				"circuitpy": "python",
-				"clang": "clang"
-			}
-			
-			function updateOutput() {
-				colorOutput(JSON.stringify({test:"value"}, null, "	"));
-			}
-			
+				json: {
+					lang: "json",
+					generateCode(report) {
+						return JSON.stringify({
+							"$comment": "Generated with iscoffeetho.github.io/usbhidgen",
+							"reportDescriptor": report
+						},null,"\t");
+					}
+				},
+				circuitpy: {
+					lang: "python",
+					generateCode(report) {
+						return ``;
+					}
+				},
+				c_tinyusb: {
+					lang: "clang",
+					generateCode(report) {
+						return `uint8_t const desc_hid_report[] = {};`;
+					}
+				},
+				c_stm32: {
+					lang: "clang",
+					generateCode(report) {
+						return `__ALIGN_BEGIN static uint8_t HID_ReportDesc[] __ALIGN_END = {};`;
+					}
+				},
+			};
+
 			window.updateOutput = updateOutput;
-			
-			function colorOutput(output) {
+			function updateOutput() {
+				
+				const report = {};
+				
 				const format = document.getElementById("output-format").value;
 				const tabFormat = document.getElementById("tab-format").value;
 				const tabSize = document.getElementById("tab-size").value;
-				
-				const tabulate = (tabFormat == "hard" ? "\t" : " ".repeat(parseInt(tabSize)));
-				
-				const parser = langs[languageMap[format]]
+
+				const tabulate = tabFormat == "hard" ? "<span tab>\t</span>" : "<span sp> </span>".repeat(parseInt(tabSize));
+
+				const langMapped = languageMap[format];
+				const lang = langs[langMapped.lang];
+				const parser = lang.parser;
 				const outputElem = document.getElementById("output");
+
+				const output = langMapped.generateCode(report);
 				
 				outputElem.innerText = output;
 				outputElem.style.tabSize = tabSize;
 				outputElem.innerHTML = outputElem.innerHTML.replace(/\t/g, tabulate);
-				
+
 				const tree = parser.parse(output);
+
+				/** @TODO implement a way to preserve whitespaces through the tree */
 				
+				var result = "";
+
+				console.log("TRAVERSING A TREE");
+				function queryTree(node, name) {
+					const nodeType = node.type;
+					console.log(nodeType, name);
+					if (lang.query[nodeType]) result += `<span ${lang.query[nodeType]} ${name}>`;
+					const children = node.children;
+					if (children.length == 0) {
+						result += node.text;
+					} else {
+						for (var idx in node.children) {
+							queryTree(node.child(idx), node.fieldNameForChild(idx));
+						}
+					}
+					if (lang.query[nodeType]) result += "</span>";
+				}
+				queryTree(tree.rootNode);
+
+				outputElem.innerHTML = result.replace(/\t/g, tabulate);
 			}
-			
 		</script>
 	</head>
 	<body>
@@ -90,7 +177,8 @@
 			<select id="output-format" name="example" onchange="window.updateOutput()">
 				<option value="json">JSON</option>
 				<option value="circuitpy">Circuit Python</option>
-				<option value="clang">clang</option>
+				<option value="c_tinyusb">TinyUSB</option>
+				<option value="c_stm32">STM32</option>
 			</select>
 		</div>
 		<div>
@@ -99,7 +187,7 @@
 				<option value="soft">Soft</option>
 				<option value="hard">Hard</option>
 			</select>
-			
+
 			<select id="tab-size" onchange="window.updateOutput()">
 				<option value="2">2</option>
 				<option value="4">4</option>
