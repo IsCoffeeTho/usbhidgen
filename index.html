@@ -1,9 +1,111 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
 	<head>
-		
+		<style>
+			body {
+				background-color: #111;
+				color: #fff;
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				flex-wrap: nowrap;
+				min-width: 720px;
+				width: 50%;
+				position: absolute;
+				left: 50%;
+				transform: translate(-50%, 0px);
+			}
+			
+			code {
+				width: 100%;
+				background-color: #000;
+				padding : 1em;
+				border-radius : 1em;
+				min-height: max-content;
+				height: 3em;
+				white-space: break-spaces;
+				tab-size: 4;
+			}
+			code>span[c] {
+				color : #888;
+			}
+		</style>
+		<script type="module">
+			import { Parser, Language } from './treesitter/web-tree-sitter.js';
+			
+			const langs = {};
+			
+			Parser.init().then(async () => {
+				const jsonParser = new Parser();
+				jsonParser.setLanguage(await Language.load('./langs/tree-sitter-json.wasm'));
+				langs["json"] = jsonParser;
+				
+				const clangParser = new Parser();
+				clangParser.setLanguage(await Language.load('./langs/tree-sitter-c.wasm'));
+				langs["clang"] = clangParser;
+				
+				const pythonParser = new Parser();
+				pythonParser.setLanguage(await Language.load('./langs/tree-sitter-python.wasm'));
+				langs["python"] = pythonParser;
+				
+				colorOutput(JSON.stringify({test:"value"}, null, "	"));
+			});
+			
+			const languageMap = {
+				"json": "json",
+				"circuitpy": "python",
+				"clang": "clang"
+			}
+			
+			function updateOutput() {
+				colorOutput(JSON.stringify({test:"value"}, null, "	"));
+			}
+			
+			window.updateOutput = updateOutput;
+			
+			function colorOutput(output) {
+				const format = document.getElementById("output-format").value;
+				const tabFormat = document.getElementById("tab-format").value;
+				const tabSize = document.getElementById("tab-size").value;
+				
+				const tabulate = (tabFormat == "hard" ? "\t" : " ".repeat(parseInt(tabSize)));
+				
+				const parser = langs[languageMap[format]]
+				const outputElem = document.getElementById("output");
+				
+				outputElem.innerText = output;
+				outputElem.style.tabSize = tabSize;
+				outputElem.innerHTML = outputElem.innerHTML.replace(/\t/g, tabulate);
+				
+				const tree = parser.parse(output);
+				
+			}
+			
+		</script>
 	</head>
 	<body>
-		Hello World!
+		<h1>USB HID Generator</h1>
+		<div>
+			Format:
+			<select id="output-format" name="example" onchange="window.updateOutput()">
+				<option value="json">JSON</option>
+				<option value="circuitpy">Circuit Python</option>
+				<option value="clang">clang</option>
+			</select>
+		</div>
+		<div>
+			Tabs:
+			<select id="tab-format" onchange="window.updateOutput()">
+				<option value="soft">Soft</option>
+				<option value="hard">Hard</option>
+			</select>
+			
+			<select id="tab-size" onchange="window.updateOutput()">
+				<option value="2">2</option>
+				<option value="4">4</option>
+				<option value="8">8</option>
+			</select>
+		</div>
+		<code id="output"></code>
 	</body>
 </html>
