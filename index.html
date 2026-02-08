@@ -20,6 +20,7 @@
 			code {
 				width: 100%;
 				background-color: #000;
+				font-weight: 500;
 				padding: 1em;
 				border-radius: 1em;
 				min-height: max-content;
@@ -38,56 +39,54 @@
 				color: #333;
 				position: absolute;
 			}
+			
+			code span[cmt] {
+				color: #888;
+			}
 
 			code span[str] {
 				color: #b87;
 			}
-			code span[str][key] {
+
+			code span[idn] {
 				color: #8ce;
 			}
 
+			code span[fn] {
+				color: #dda;
+			}
+			
+			code span[typ] {
+				color: #4ba;
+			}
+			
 			code span[nbr] {
 				color: #ac9;
 			}
 
-			code span[bool] {
+			code span[kywd] {
 				color: #58c;
+			}
+			
+			code span[bool] {
+				color: #4ae;
 			}
 		</style>
 		<script type="module">
 			import { Parser, Language } from "./treesitter/web-tree-sitter.js";
+			
+			import { init as initJSON } from "./langs/json/init.js";
+			import { init as initPYTHON } from "./langs/python/init.js";
+			import { init as initCLANG } from "./langs/clang/init.js";
+			
 
-			const langs = {};
+			var langs = {};
 
 			Parser.init().then(async () => {
-				const jsonParser = new Parser();
-				jsonParser.setLanguage(await Language.load("./langs/tree-sitter-json.wasm"));
-				langs["json"] = {
-					parser: jsonParser,
-					query: {
-						string: "str",
-						number: "nbr",
-						false: "bool",
-						true: "bool",
-					}
-				};
-
-				const clangParser = new Parser();
-				clangParser.setLanguage(await Language.load("./langs/tree-sitter-c.wasm"));
-				langs["clang"] = {
-					parser: clangParser,
-					query: {
-						string: "str",
-						number: "nbr",
-						false: "bool",
-						true: "bool",
-					}
-				};
-
-				const pythonParser = new Parser();
-				pythonParser.setLanguage(await Language.load("./langs/tree-sitter-python.wasm"));
-				langs["python"] = pythonParser;
-
+				langs["json"] = await initJSON();
+				langs["python"] = await initPYTHON();
+				langs["clang"] = await initCLANG();
+				
 				updateOutput();
 			});
 
@@ -95,37 +94,36 @@
 				json: {
 					lang: "json",
 					generateCode(report) {
-						return JSON.stringify({
-							"$comment": "Generated with iscoffeetho.github.io/usbhidgen",
-							"reportDescriptor": report
-						},null,"\t");
-					}
+						return JSON.stringify(
+							{
+								$comment: "Generated with iscoffeetho.github.io/usbhidgen",
+								reportDescriptor: report,
+							},
+							null,
+							"\t",
+						);
+					},
 				},
 				circuitpy: {
 					lang: "python",
 					generateCode(report) {
-						return ``;
-					}
+						var bytes = "";
+						return `import usb_hid\nimport usb_cdc\nimport usb_midi\n\nusb_cdc.disable()\nusb_midi.disable()\n\nHID_DESCRIPTOR = bytes([\n${bytes}])\n\nusb_hid.enable((\n\tusb_hid.Device(\n\t\treport_descriptor=HID_DESCRIPTOR,\n\t\tusage_page=0x01,\n\t\tusage=0x05,\n\t\treport_ids=(1,),\n\t\tin_report_lengths=(21,),\n\t\tout_report_lengths=(0,)\n\t),\n))`;
+					},
 				},
 				c_tinyusb: {
 					lang: "clang",
 					generateCode(report) {
-						return `uint8_t const desc_hid_report[] = {};`;
-					}
-				},
-				c_stm32: {
-					lang: "clang",
-					generateCode(report) {
-						return `__ALIGN_BEGIN static uint8_t HID_ReportDesc[] __ALIGN_END = {};`;
-					}
-				},
+						var bytes = "";
+						return `uint8_t const hid_report[] = {};`;
+					},
+				}
 			};
 
 			window.updateOutput = updateOutput;
 			function updateOutput() {
-				
 				const report = {};
-				
+
 				const format = document.getElementById("output-format").value;
 				const tabFormat = document.getElementById("tab-format").value;
 				const tabSize = document.getElementById("tab-size").value;
@@ -135,38 +133,45 @@
 				const langMapped = languageMap[format];
 				const lang = langs[langMapped.lang];
 				const parser = lang.parser;
+				const query = lang.query;
 				const outputElem = document.getElementById("output");
 
 				const output = langMapped.generateCode(report);
-				
+
 				outputElem.innerText = output;
 				outputElem.style.tabSize = tabSize;
 				outputElem.innerHTML = outputElem.innerHTML.replace(/\t/g, tabulate);
 
 				const tree = parser.parse(output);
 
-				/** @TODO implement a way to preserve whitespaces through the tree */
-				
-				var result = "";
+				var result = output.split("\n").map(v => v.split("").map(c => {
+					if (c == "&")
+						return "&amp;"
+					if (c == "<")
+						return "&lt;"
+					if (c == ">")
+						return "&gt;"
+					return c;
+				}));
 
 				console.log("TRAVERSING A TREE");
 				function queryTree(node, name) {
 					const nodeType = node.type;
-					console.log(nodeType, name);
-					if (lang.query[nodeType]) result += `<span ${lang.query[nodeType]} ${name}>`;
 					const children = node.children;
-					if (children.length == 0) {
-						result += node.text;
-					} else {
-						for (var idx in node.children) {
-							queryTree(node.child(idx), node.fieldNameForChild(idx));
-						}
+					for (var idx in node.children) {
+						queryTree(node.child(idx), node.fieldNameForChild(idx));
 					}
-					if (lang.query[nodeType]) result += "</span>";
+					var resultQuery = query(node, name);
+					if (!resultQuery)
+						return;
+					var start = node.startPosition
+					var end = node.endPosition
+					result[start.row][start.column] = `<span ${resultQuery}>${result[start.row][start.column]}`;
+					result[end.row][end.column - 1] += `</span>`
 				}
 				queryTree(tree.rootNode);
 
-				outputElem.innerHTML = result.replace(/\t/g, tabulate);
+				outputElem.innerHTML = result.map(v => v.join("")).join("\n").replace(/\t/g, tabulate);
 			}
 		</script>
 	</head>
@@ -175,22 +180,22 @@
 		<div>
 			Format:
 			<select id="output-format" name="example" onchange="window.updateOutput()">
+				<option value="c_tinyusb">TinyUSB</option>
 				<option value="json">JSON</option>
 				<option value="circuitpy">Circuit Python</option>
-				<option value="c_tinyusb">TinyUSB</option>
 				<option value="c_stm32">STM32</option>
 			</select>
 		</div>
 		<div>
 			Tabs:
 			<select id="tab-format" onchange="window.updateOutput()">
-				<option value="soft">Soft</option>
 				<option value="hard">Hard</option>
+				<option value="soft">Soft</option>
 			</select>
 
 			<select id="tab-size" onchange="window.updateOutput()">
-				<option value="2">2</option>
 				<option value="4">4</option>
+				<option value="2">2</option>
 				<option value="8">8</option>
 			</select>
 		</div>
